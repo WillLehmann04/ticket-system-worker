@@ -8,14 +8,16 @@ import "./src/worker/emailProcessor.js";
 const app = express();
 
 function parseMultipart(req, res, next) {
-  const ct = req.headers["content-type"] || "";
-  if (!ct.includes("multipart/form-data")) return next();
-  const fields = {};
-  const bb = busboy({ headers: req.headers });
-  bb.on("field", (name, val) => { fields[name] = val; });
-  bb.on("finish", () => { req.body = fields; next(); });
-  bb.on("error", next);
-  req.pipe(bb);
+  try {
+    const fields = {};
+    const bb = busboy({ headers: req.headers });
+    bb.on("field", (name, val) => { fields[name] = val; });
+    bb.on("finish", () => { req.body = fields; next(); });
+    bb.on("error", next);
+    req.pipe(bb);
+  } catch {
+    next();
+  }
 }
 
 // Mailgun sends inbound email as multipart/form-data
