@@ -4,6 +4,35 @@
 
 import * as chrono from "chrono-node";
 
+// ---------------------------------------------------------------------------
+// HTML stripping
+// ---------------------------------------------------------------------------
+
+function stripHtml(text) {
+  if (!text) return "";
+
+  // Remove <style> and <script> blocks entirely
+  let result = text.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, " ");
+  result = result.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, " ");
+
+  // Strip all remaining HTML tags
+  result = result.replace(/<[^>]+>/g, " ");
+
+  // Decode common entities
+  result = result
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'");
+
+  // Collapse multiple spaces
+  result = result.replace(/[ \t]+/g, " ");
+
+  return result;
+}
+
 // Words that carry no signal – filtered out before keyword extraction.
 const STOP_WORDS = new Set([
   "a","an","the","and","or","but","in","on","at","to","for","of","with",
@@ -78,6 +107,19 @@ const CATEGORY_RULES = [
   { category: "general", terms: [] }, // catch-all
 ];
 
+// Negation words used to detect "NOT urgent" style phrases
+const NEGATION_WORDS = new Set([
+  "not","no","never","isn't","isnt","doesn't","doesnt",
+  "can't","cant","won't","wont","hardly","barely",
+]);
+
+function isNegated(haystack, matchIndex) {
+  const before = haystack.slice(Math.max(0, matchIndex - 40), matchIndex);
+  const words = before.trim().split(/\s+/);
+  const lastThree = words.slice(-3);
+  return lastThree.some((w) => NEGATION_WORDS.has(w.toLowerCase()));
+}
+
 // Phrases that signal a due date is nearby in the text
 const DUE_DATE_CONTEXT = [
   /(?:due|deadline|by|before|needed?\s+by|required?\s+by|no\s+later\s+than|complete\s+by|finish\s+by|deliver(?:ed)?\s+by)[:\s]+([^\n.!?]{1,60})/gi,
@@ -135,24 +177,56 @@ function extractKeywords(text, topN = 8) {
 }
 
 function detectPriority(subject, body) {
-  const haystack = `${subject} ${body}`.toLowerCase();
+  const subjectLower = subject.toLowerCase();
+  const bodyLower = body.toLowerCase();
 
+  // Check subject first — strongest intent signal
   for (const { words, priority } of PRIORITY_SIGNALS) {
-    if (words.some((w) => haystack.includes(w))) return priority;
+    for (const w of words) {
+      const idx = subjectLower.indexOf(w);
+      if (idx !== -1 && !isNegated(subjectLower, idx)) return priority;
+    }
+  }
+
+  // Fall through to body
+  for (const { words, priority } of PRIORITY_SIGNALS) {
+    for (const w of words) {
+      const idx = bodyLower.indexOf(w);
+      if (idx !== -1 && !isNegated(bodyLower, idx)) return priority;
+    }
   }
 
   return "normal";
 }
 
 function detectCategory(subject, body) {
-  const haystack = `${subject} ${body}`.toLowerCase();
+  const subjectLower = subject.toLowerCase();
+  const bodyLower = body.toLowerCase();
 
+  const scores = {};
   for (const { category, terms } of CATEGORY_RULES) {
-    if (terms.length === 0) return category;
-    if (terms.some((t) => haystack.includes(t))) return category;
+    if (terms.length === 0) continue; // skip catch-all during scoring
+    let score = 0;
+    for (const t of terms) {
+      if (bodyLower.includes(t)) score += 1;
+      if (subjectLower.includes(t)) score += 3;
+    }
+    scores[category] = score;
   }
 
-  return "general";
+  // Find the highest-scoring category
+  let best = null;
+  let bestScore = 0;
+  for (const { category, terms } of CATEGORY_RULES) {
+    if (terms.length === 0) continue;
+    const s = scores[category] ?? 0;
+    if (s > bestScore) {
+      bestScore = s;
+      best = category;
+    }
+  }
+
+  return bestScore > 0 ? best : "general";
 }
 
 /**
@@ -194,11 +268,13 @@ function extractDueDate(subject, body) {
  * }}
  */
 export function parseEmail({ subject = "", body = "" }) {
-  const cleanBody = stripNoise(body);
-  const keywords  = extractKeywords(`${subject} ${cleanBody}`);
-  const priority  = detectPriority(subject, cleanBody);
-  const category  = detectCategory(subject, cleanBody);
-  const dueDate   = extractDueDate(subject, cleanBody);
+  const strippedBody = stripHtml(body);
+  const cleanBody = stripNoise(strippedBody);
+  const cleanSubject = stripHtml(subject);
+  const keywords  = extractKeywords(`${cleanSubject} ${cleanBody}`);
+  const priority  = detectPriority(cleanSubject, cleanBody);
+  const category  = detectCategory(cleanSubject, cleanBody);
+  const dueDate   = extractDueDate(cleanSubject, cleanBody);
 
   return { cleanBody, keywords, priority, category, dueDate };
 }
