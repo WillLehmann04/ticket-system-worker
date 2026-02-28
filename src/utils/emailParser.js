@@ -22,7 +22,7 @@ const PRIORITY_SIGNALS = [
   {
     priority: "high",
     words: [
-      "urgent","urgently","asap","emergency","critical","immediately",
+      "urgent","urgently","asap","as soon as possible","emergency","critical","immediately",
       "high priority","blocking","blocker","p0","p1","escalate",
     ],
   },
