@@ -1,18 +1,28 @@
 import "dotenv/config";
 import express from "express";
-import multer from "multer";
+import busboy from "busboy";
 import { emailQueue } from "./src/queue/queue.js";
 import { logger } from "./src/utils/logger.js";
 import "./src/worker/emailProcessor.js";
 
 const app = express();
-const upload = multer();
+
+function parseMultipart(req, res, next) {
+  const ct = req.headers["content-type"] || "";
+  if (!ct.includes("multipart/form-data")) return next();
+  const fields = {};
+  const bb = busboy({ headers: req.headers });
+  bb.on("field", (name, val) => { fields[name] = val; });
+  bb.on("finish", () => { req.body = fields; next(); });
+  bb.on("error", next);
+  req.pipe(bb);
+}
 
 // Mailgun sends inbound email as multipart/form-data
-app.post("/inbound", upload.none(), async (req, res) => {
+app.post("/inbound", parseMultipart, async (req, res) => {
   try {
-    const { sender, from, subject, recipient } = req.body;
-    const text = req.body["body-plain"] || req.body.text || "";
+    const { sender, from, subject, recipient } = req.body || {};
+    const text = (req.body || {})["body-plain"] || (req.body || {}).text || "";
 
     // Derive tenant_id from the recipient address.
     // Convention: <tenant_id>@tickets.yourdomain.com
