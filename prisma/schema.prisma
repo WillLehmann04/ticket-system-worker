@@ -8,14 +8,17 @@ datasource db {
 }
 
 model Ticket {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   tenantId  String
   fromEmail String
   subject   String
   body      String
-  status    String   @default("open")
-  createdAt DateTime @default(now()) @db.Timestamptz(6)
-  updatedAt DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+  status    String    @default("open")
+  priority  String    @default("normal")
+  category  String    @default("general")
+  dueDate   DateTime? @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
 
   @@index([tenantId], map: "ticket_tenantId_idx")
   @@map("tickets")

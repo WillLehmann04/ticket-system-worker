@@ -1,6 +1,7 @@
 import { Worker } from "bullmq";
 import { redisConnection } from "../queue/redis.js";
 import { createTicket } from "../services/ticketService.js";
+import { parseEmail } from "../utils/emailParser.js";
 import { logger } from "../utils/logger.js";
 
 export const emailWorker = new Worker(
@@ -10,16 +11,29 @@ export const emailWorker = new Worker(
 
     logger.info("Processing email job", { jobId: job.id, tenant_id, from, subject });
 
+    const parsed = parseEmail({ subject, body: text });
+
+    logger.info("Email parsed", {
+      jobId:    job.id,
+      priority: parsed.priority,
+      category: parsed.category,
+      dueDate:  parsed.dueDate,
+      keywords: parsed.keywords.map((k) => k.word),
+    });
+
     const ticket = await createTicket({
       tenantId: tenant_id,
       from,
       subject,
-      body: text,
+      body:     text,
+      priority: parsed.priority,
+      category: parsed.category,
+      dueDate:  parsed.dueDate,
     });
 
     logger.info("Ticket created", { jobId: job.id, ticketId: ticket.id });
 
-    return ticket;
+    return { ...ticket, parsed };
   },
   {
     connection: redisConnection,
